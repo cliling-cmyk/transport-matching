@@ -261,7 +261,7 @@
         if (!gameActive) return;
 
         // Fuel Depletion
-        fuel -= 0.05;
+        fuel -= 0.02;
         fuelBar.style.width = fuel + "%";
         if (fuel <= 0) endGame(false);
 

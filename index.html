@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>balanced transport match</title>
+    <style>
+        :root {
+            --bg: #ff9800;
+            --arena: #81d4fa;
+            --grass: #4caf50;
+            --white: #ffffff;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            text-transform: lowercase;
+        }
+
+        header {
+            background: var(--white);
+            padding: 10px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        #fuel-container {
+            width: 80%;
+            height: 20px;
+            background: #eee;
+            border-radius: 10px;
+            margin: 5px auto;
+            overflow: hidden;
+            border: 2px solid #ddd;
+        }
+
+        #fuel-bar {
+            width: 100%;
+            height: 100%;
+            background: var(--grass);
+            transition: width 0.1s linear;
+        }
+
+        #arena {
+            flex-grow: 1;
+            background-color: var(--arena);
+            position: relative;
+            margin: 20px;
+            border-radius: 15px;
+            overflow: hidden;
+            border: 4px solid var(--white);
+        }
+
+        #grass-strip {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 40px;
+            background-color: var(--grass);
+        }
+
+        .emoji {
+            position: absolute;
+            font-size: 3rem;
+            cursor: grab;
+            user-select: none;
+            z-index: 5;
+            touch-action: none;
+        }
+
+        .label {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: #333;
+            border: 2px dashed #666;
+            pointer-events: none; /* Let emojis drop through to detection */
+        }
+
+        #message-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            display: none;
+            z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        button {
+            background: var(--bg);
+            border: none;
+            padding: 10px 20px;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            text-transform: lowercase;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>fuel level</div>
+    <div id="fuel-container"><div id="fuel-bar"></div></div>
+</header>
+
+<div id="arena">
+    <div id="grass-strip"></div>
+</div>
+
+<div id="message-overlay">
+    <h1 id="status-text">game over</h1>
+    <button onclick="location.reload()">play again</button>
+</div>
+
+<script>
+    const data = [
+        { e: '🚲', n: 'bike' }, { e: '🚌', n: 'bus' }, { e: '🚗', n: 'car' },
+        { e: '🚇', n: 'subway' }, { e: '✈️', n: 'plane' }, { e: '🛵', n: 'scooter' },
+        { e: '🚕', n: 'taxi' }, { e: '🚆', n: 'train' }, { e: '🚤', n: 'boat' },
+        { e: ' ferry', n: 'ferry' }, { e: '🚚', n: 'truck' }, { e: '🏍️', n: 'motorcycle' },
+        { e: '🚁', n: 'helicopter' }, { e: '🚠', n: 'cable car' }
+    ];
+
+    const arena = document.getElementById('arena');
+    const fuelBar = document.getElementById('fuel-bar');
+    const overlay = document.getElementById('message-overlay');
+    const statusText = document.getElementById('status-text');
+
+    let fuel = 100;
+    let activeItems = 14;
+    let gameActive = true;
+    let audioCtx = null;
+
+    // Initialize Web Audio
+    const initAudio = () => {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    };
+
+    const playSound = (freq, type, duration) => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    };
+
+    const items = [];
+
+    // Create Elements
+    data.forEach((item, index) => {
+        const emojiEl = document.createElement('div');
+        emojiEl.className = 'emoji';
+        emojiEl.innerText = item.e;
+        emojiEl.dataset.name = item.n;
+        
+        const labelEl = document.createElement('div');
+        labelEl.className = 'label';
+        labelEl.innerText = item.n;
+        labelEl.id = `label-${index}`;
+
+        arena.appendChild(emojiEl);
+        arena.appendChild(labelEl);
+
+        const obj = {
+            emoji: emojiEl,
+            label: labelEl,
+            name: item.n,
+            x: Math.random() * (arena.clientWidth - 50),
+            y: Math.random() * (arena.clientHeight - 100),
+            lx: Math.random() * (arena.clientWidth - 80),
+            ly: Math.random() * (arena.clientHeight - 100),
+            dx: (Math.random() - 0.5) * 2,
+            dy: (Math.random() - 0.5) * 2,
+            ldx: (Math.random() - 0.5) * 1.2,
+            ldy: (Math.random() - 0.5) * 1.2,
+            dragging: false
+        };
+        items.push(obj);
+
+        // Drag Logic
+        const startDrag = (e) => {
+            if (!gameActive) return;
+            initAudio();
+            obj.dragging = true;
+            emojiEl.style.zIndex = 100;
+        };
+
+        const moveDrag = (e) => {
+            if (!obj.dragging) return;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const rect = arena.getBoundingClientRect();
+            obj.x = clientX - rect.left - 25;
+            obj.y = clientY - rect.top - 25;
+        };
+
+        const endDrag = () => {
+            if (!obj.dragging) return;
+            obj.dragging = false;
+            emojiEl.style.zIndex = 5;
+            
+            // Check collision with its own label
+            const lRect = obj.label.getBoundingClientRect();
+            const eRect = obj.emoji.getBoundingClientRect();
+
+            if (!(eRect.right < lRect.left || eRect.left > lRect.right || 
+                eRect.bottom < lRect.top || eRect.top > lRect.bottom)) {
+                // Correct Match
+                playSound(880, 'sine', 0.2);
+                fuel = Math.min(100, fuel + 15);
+                obj.emoji.remove();
+                obj.label.remove();
+                items.splice(items.indexOf(obj), 1);
+                activeItems--;
+                if (activeItems === 0) endGame(true);
+            } else {
+                // Wrong Match (simple buzz)
+                playSound(120, 'sawtooth', 0.2);
+            }
+        };
+
+        emojiEl.addEventListener('mousedown', startDrag);
+        window.addEventListener('mousemove', moveDrag);
+        window.addEventListener('mouseup', endDrag);
+        emojiEl.addEventListener('touchstart', startDrag);
+        window.addEventListener('touchmove', moveDrag);
+        window.addEventListener('touchend', endDrag);
+    });
+
+    function endGame(win) {
+        gameActive = false;
+        overlay.style.display = 'block';
+        statusText.innerText = win ? "you won!" : "out of fuel";
+    }
+
+    function animate() {
+        if (!gameActive) return;
+
+        // Fuel Depletion
+        fuel -= 0.05;
+        fuelBar.style.width = fuel + "%";
+        if (fuel <= 0) endGame(false);
+
+        items.forEach(item => {
+            // Move Emoji
+            if (!item.dragging) {
+                item.x += item.dx;
+                item.y += item.dy;
+                if (item.x < 0 || item.x > arena.clientWidth - 50) item.dx *= -1;
+                if (item.y < 0 || item.y > arena.clientHeight - 60) item.dy *= -1;
+            }
+
+            // Move Label
+            item.lx += item.ldx;
+            item.ly += item.ldy;
+            if (item.lx < 0 || item.lx > arena.clientWidth - 80) item.ldx *= -1;
+            if (item.ly < 0 || item.ly > arena.clientHeight - 40) item.ldy *= -1;
+
+            item.emoji.style.left = item.x + 'px';
+            item.emoji.style.top = item.y + 'px';
+            item.label.style.left = item.lx + 'px';
+            item.label.style.top = item.ly + 'px';
+        });
+
+        requestAnimationFrame(animate);
+    }
+
+    animate();
+</script>
+</body>
+</html>
